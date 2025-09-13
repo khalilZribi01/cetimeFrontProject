@@ -1,34 +1,49 @@
-// src/views/calendrier/CalendrierAdmin.jsx
 import { useEffect, useState, useMemo, useRef } from "react";
 import FullCalendar from "@fullcalendar/react";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import {
-  Box,
-  Typography,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem
+  Box, Typography, Dialog, DialogTitle, DialogContent, DialogActions, Button,
+  FormControl, InputLabel, Select, MenuItem,
 } from "@mui/material";
 import axios from "axios";
 
-const API_BASE = "http://localhost:4000";
-const AFFECT_URL = `${API_BASE}/rendezvous/affecter/admin`;
-const REASSIGN_URL = (id) => `${API_BASE}/rendezvous/${id}/reassign`;
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
+
+// Endpoints
+const USERS_ALLOWED_URL = `${API_BASE}/api/auth/allowed`;          // <-- nouveaux agents filtrés
+const DISPO_ALL_URL     = `${API_BASE}/disponibilite/all`;
+const RDV_ADMIN_URL     = `${API_BASE}/rendezvous/admin`;
+const AFFECT_URL        = `${API_BASE}/rendezvous/affecter/admin`;
+const REASSIGN_URL      = (id) => `${API_BASE}/rendezvous/${id}/reassign`;
 
 const COLORS = {
   dispo: "#2196f3",
   valide: "#4caf50",
   attente: "#ff9800",
-  annule: "#f44336"
+  annule: "#f44336",
 };
+
+// --- helpers ---
+const tagP = (name) => {
+  const s = String(name || "").trim();
+  return s && s !== "À affecter" ? `${s} - P` : s;
+   };
+
+const isSameDay = (d1, d2) => {
+  const a = new Date(d1), b = new Date(d2);
+  return a.getFullYear() === b.getFullYear() &&
+         a.getMonth() === b.getMonth() &&
+         a.getDate() === b.getDate();
+};
+const useHasSameDay = (events) => (kind, agentId, dayRef, ignoreId = null) =>
+  events.some((e) => {
+    if (e?.extendedProps?.kind !== kind) return false;
+    if (String(e.extendedProps.agentId) !== String(agentId)) return false;
+    if (ignoreId && String(e.id) === String(ignoreId)) return false;
+    return isSameDay(e.start, dayRef);
+  });
 
 export default function CalendrierAdmin() {
   const [events, setEvents] = useState([]);
@@ -38,17 +53,23 @@ export default function CalendrierAdmin() {
   const [selectedSlot, setSelectedSlot] = useState(null); // { startStr, endStr }
   const [selectedEvent, setSelectedEvent] = useState(null); // EventApi (RDV)
   const [mode, setMode] = useState("assign"); // "assign" | "reassign"
+
   const token = localStorage.getItem("token");
+  const authHeader = useMemo(
+    () => ({ headers: { Authorization: `Bearer ${token}` } }),
+    [token]
+  );
 
-  const authHeader = useMemo(() => ({ headers: { Authorization: `Bearer ${token}` } }), [token]);
-
-  // 🔑 Index toujours à jour (indépendant du cycle de rendu)
-  const agentIndexRef = useRef({}); // { "10": {id:10, name:"...", email:"..."} }
+  const agentIndexRef = useRef({}); // id -> {id,name,email}
+  const hasSameDay = useHasSameDay(events);
+  const hasDispoSameDay = (agentId, dayRef) => hasSameDay("dispo", agentId, dayRef);
+  const hasRdvSameDay   = (agentId, dayRef, ignoreId = null) =>
+    hasSameDay("rdv", agentId, dayRef, ignoreId);
 
   useEffect(() => {
     (async () => {
-      await fetchAgents(); // met à jour agents + agentIndexRef.current
-      await fetchData();   // utilise agentIndexRef.current immédiatement
+      await fetchAgents();
+      await fetchData();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -58,25 +79,20 @@ export default function CalendrierAdmin() {
 
   const fetchAgents = async () => {
     try {
-      const res = await axios.get(
-        `${API_BASE}/routes/users/by-group?group=employee&limit=200`,
-        authHeader
-      );
+      const res = await axios.get(USERS_ALLOWED_URL, authHeader);
       const items = (res.data || [])
-        .map((u) => {
-          const id = u.id ?? u.value;
-          const name =
-            u?.partner?.name || u?.partner_name || u?.label || u?.login || `Employé #${id}`;
-          const email = u?.partner?.email || u?.email || null;
-          return { id, name, email };
-        })
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .map((a) => ({
+          id: a.id,
+          name: a.name,
+          email: a.email || null,
+        }))
+        .sort((x, y) => x.name.localeCompare(y.name));
 
       setAgents(items);
-      agentIndexRef.current = buildIndex(items); // ✅ prêt pour fetchData()
+      agentIndexRef.current = buildIndex(items);
       return items;
     } catch (e) {
-      console.error("Erreur chargement agents:", e);
+      console.error("Erreur chargement agents autorisés:", e);
       setAgents([]);
       agentIndexRef.current = {};
       return [];
@@ -85,25 +101,26 @@ export default function CalendrierAdmin() {
 
   const fetchData = async () => {
     try {
-      const idx = agentIndexRef.current; // ✅ index fiable
+      const idx = agentIndexRef.current;
 
       // Disponibilités (bleu)
-      const dispoRes = await axios.get(`${API_BASE}/disponibilite/all`, authHeader);
+      const dispoRes = await axios.get(DISPO_ALL_URL, authHeader);
       const disponibilites = (dispoRes.data || []).map((item) => {
-        const nameFromIndex = idx[String(item.agentId)]?.name;
-        const title = nameFromIndex || item.agentName || `Agent ${item.agentId}`;
+        const label = idx[String(item.agentId)]?.name || item.agentName || `Agent ${item.agentId}`;
+       const title = tagP(label);
         return {
+          id: `dispo-${item.id ?? `${item.agentId}-${item.start}`}`,
           title,
           start: item.start,
           end: item.end,
           backgroundColor: COLORS.dispo,
           borderColor: COLORS.dispo,
-          extendedProps: { kind: "dispo" }
+          extendedProps: { kind: "dispo", agentId: item.agentId },
         };
       });
 
-      // RDV (vert/orange/rouge)
-      const rdvRes = await axios.get(`${API_BASE}/rendezvous/admin`, authHeader);
+      // RDVs (vert/orange/rouge)
+      const rdvRes = await axios.get(RDV_ADMIN_URL, authHeader);
       const rdvs = (rdvRes.data || []).map((rdv) => {
         const start = rdv.start || rdv.dateRdv;
         const end =
@@ -116,17 +133,17 @@ export default function CalendrierAdmin() {
         if (rdv.statut === "valide") color = COLORS.valide;
         else if (rdv.statut === "annule") color = COLORS.annule;
 
-        const agentName =
+        const agentLabel =
+          idx[String(rdv?.agentId)]?.name ||
           rdv?.agent?.partner?.name ||
           rdv?.agentName ||
-          idx[String(rdv?.agentId)]?.name ||
           (rdv?.agentId ? `Agent ${rdv.agentId}` : "À affecter");
 
         const clientName = rdv?.client?.partner?.name || rdv?.clientName || "Client";
 
         return {
           id: rdv.id,
-          title: rdv.title || `RDV: ${clientName} / ${agentName}`,
+          title: `RDV: ${clientName} / ${tagP(agentLabel)}`,
           start,
           end,
           backgroundColor: color,
@@ -135,9 +152,9 @@ export default function CalendrierAdmin() {
             kind: "rdv",
             statut: rdv.statut,
             agentId: rdv.agentId ?? null,
-            agentName,
-            clientName
-          }
+            agentName: tagP(agentLabel),
+            clientName,
+          },
         };
       });
 
@@ -147,7 +164,7 @@ export default function CalendrierAdmin() {
     }
   };
 
-  // Créneau vide → affecter une dispo
+  // Sélection d’un créneau vide → affecter (crée une DISPO)
   const handleDateSelect = (selectInfo) => {
     setMode("assign");
     setSelectedSlot({ startStr: selectInfo.startStr, endStr: selectInfo.endStr });
@@ -156,25 +173,60 @@ export default function CalendrierAdmin() {
     setAssignOpen(true);
   };
 
-  // Clic RDV → réaffectation
+  // Clic sur un RDV → réaffecter (change l’AGENT du RDV)
   const handleEventClick = (clickInfo) => {
     const kind = clickInfo?.event?.extendedProps?.kind;
     if (kind !== "rdv") return;
     setMode("reassign");
     setSelectedEvent(clickInfo.event);
-    const currentAgentId = clickInfo.event.extendedProps?.agentId;
-    setSelectedAgentId(currentAgentId ? String(currentAgentId) : "");
+    setSelectedAgentId("");
     setSelectedSlot(null);
     setAssignOpen(true);
   };
 
-  // Confirmer (assign OU reassign)
+  // Agents désactivés dans la liste (selon la contrainte "1 / jour")
+  const disabledAgents = useMemo(() => {
+    const set = new Set();
+    if (mode === "assign" && selectedSlot?.startStr) {
+      agents.forEach((a) => {
+        if (hasDispoSameDay(a.id, selectedSlot.startStr)) set.add(String(a.id));
+      });
+    } else if (mode === "reassign" && selectedEvent?.start) {
+      agents.forEach((a) => {
+        if (hasRdvSameDay(a.id, selectedEvent.start, selectedEvent.id))
+          set.add(String(a.id));
+      });
+      const currentId = selectedEvent?.extendedProps?.agentId;
+      if (currentId) set.add(String(currentId)); // agent actuel désactivé
+    }
+    return set;
+  }, [agents, events, mode, selectedSlot, selectedEvent]);
+
+  // Confirmer (création dispo OU réaffectation RDV)
   const confirmAssign = async () => {
     if (!selectedAgentId) return;
 
+    const refDate =
+      mode === "reassign" ? selectedEvent?.start : selectedSlot?.startStr;
+
+    // garde-fou local
+    const violation =
+      mode === "reassign"
+        ? hasRdvSameDay(selectedAgentId, refDate, selectedEvent?.id)
+        : hasDispoSameDay(selectedAgentId, refDate);
+
+    if (violation) {
+      alert("Cet agent est déjà pris ce jour-là.");
+      return;
+    }
+
     try {
       if (mode === "reassign" && selectedEvent) {
-        await axios.put(REASSIGN_URL(selectedEvent.id), { agentId: selectedAgentId }, authHeader);
+        await axios.put(
+          REASSIGN_URL(selectedEvent.id),
+          { agentId: selectedAgentId },
+          authHeader
+        );
       } else if (mode === "assign" && selectedSlot) {
         await axios.post(
           AFFECT_URL,
@@ -250,22 +302,40 @@ export default function CalendrierAdmin() {
               label="Agent"
               value={selectedAgentId}
               onChange={(e) => setSelectedAgentId(e.target.value)}
-              renderValue={(value) => agentIndexRef.current[String(value)]?.name || ""}
+              renderValue={(value) =>
+                value ? tagP(agentIndexRef.current[String(value)]?.name || "") : "Choisir un agent"
+              }
               MenuProps={{ PaperProps: { sx: { maxHeight: 320 } } }}
             >
-              {agents.map((a) => (
-                <MenuItem key={a.id} value={a.id}>
-                  <Box display="flex" flexDirection="column">
-                    <Typography>{a.name}</Typography>
-                    {a.email && (
-                      <Typography variant="caption" color="text.secondary">
-                        {a.email}
+              {agents.map((a) => {
+                const disabled = disabledAgents.has(String(a.id));
+                const isCurrent =
+                  mode === "reassign" &&
+                  selectedEvent?.extendedProps?.agentId &&
+                  String(selectedEvent.extendedProps.agentId) === String(a.id);
+
+                const showSameDayHint =
+                  (mode === "assign" && selectedSlot?.startStr && hasDispoSameDay(a.id, selectedSlot.startStr)) ||
+                  (mode === "reassign" && selectedEvent?.start && hasRdvSameDay(a.id, selectedEvent.start, selectedEvent.id));
+
+                return (
+                  <MenuItem key={a.id} value={a.id} disabled={disabled}>
+                    <Box display="flex" flexDirection="column">
+                      <Typography>
+                        {tagP(a.name)}
+                        {isCurrent ? " (actuel)" : ""}
+                        {showSameDayHint ? " — déjà pris aujourd'hui" : ""}
                       </Typography>
-                    )}
-                  </Box>
-                </MenuItem>
-              ))}
-              {agents.length === 0 && <MenuItem disabled>Aucun agent disponible</MenuItem>}
+                      {a.email && (
+                        <Typography variant="caption" color="text.secondary">
+                          {a.email}
+                        </Typography>
+                      )}
+                    </Box>
+                  </MenuItem>
+                );
+              })}
+              {agents.length === 0 && <MenuItem disabled>Aucun agent autorisé</MenuItem>}
             </Select>
           </FormControl>
         </DialogContent>
