@@ -25,12 +25,10 @@ const TECH_TO_FR = {
   done: "Réalisée",
   draft: "Demande",
   open: "Affectée",
-  rejected: "Rejeté",
+  rejected: "Rejeté"
 };
 /* libellés FR -> états techniques (pour les requêtes) */
-const FR_TO_TECH = Object.fromEntries(
-  Object.entries(TECH_TO_FR).map(([tech, fr]) => [fr, tech])
-);
+const FR_TO_TECH = Object.fromEntries(Object.entries(TECH_TO_FR).map(([tech, fr]) => [fr, tech]));
 
 /* ordre d’affichage + couleur */
 const STATE_META = {
@@ -38,7 +36,7 @@ const STATE_META = {
   Réalisée: { color: "success" },
   Demande: { color: "warning" },
   Affectée: { color: "info" },
-  Rejeté: { color: "error" },
+  Rejeté: { color: "error" }
 };
 
 export default function AppExpansionPanel() {
@@ -54,24 +52,23 @@ export default function AppExpansionPanel() {
     {
       field: "numero",
       headerName: "N° Prestation",
-      width: 180,
-      valueGetter: (p) => p?.row?.prestation || p?.row?.name_primary || "",
+      width: 220
     },
     {
       field: "department_name",
       headerName: "Département",
-      width: 200,
+      width: 200
     },
     {
       field: "activity_name",
       headerName: "Activité",
-      width: 260,
+      width: 260
     },
     {
       field: "reference_bordereau",
       headerName: "Référence bordereau",
       flex: 1,
-      minWidth: 260,
+      minWidth: 260
     },
     {
       field: "date",
@@ -80,7 +77,7 @@ export default function AppExpansionPanel() {
       valueGetter: (p) => {
         const d = p?.row?.date || p?.row?.create_date;
         return d ? String(d).slice(0, 10) : "";
-      },
+      }
     },
     {
       field: "action",
@@ -96,8 +93,8 @@ export default function AppExpansionPanel() {
           >
             <OpenInNewIcon fontSize="inherit" />
           </IconButton>
-        ) : null,
-    },
+        ) : null
+    }
   ];
 
   /* --------- API --------- */
@@ -140,17 +137,18 @@ export default function AppExpansionPanel() {
 
       const rows = (Array.isArray(j.rows) ? j.rows : []).map((r = {}) => ({
         id: r.id,
-        // champs utilisés par le DataGrid
         prestation: r.prestation ?? null,
         name_primary: r.name_primary ?? "",
         department_name: r.department_name ?? "",
         activity_name: r.activity_name ?? "",
         reference_bordereau: r.reference_bordereau ?? "",
         date: r.date ?? r.create_date ?? null,
+        // ✅ champ calculé/retourné par l'API (fallback fiable)
+        numero: r.numero ?? r.prestation ?? r.name_primary ?? "",
         // état FR (utile si besoin)
         state: frState,
         // conserver tout l’objet d’origine
-        ...r,
+        ...r
       }));
 
       setByState((prev) => ({
@@ -160,8 +158,8 @@ export default function AppExpansionPanel() {
           count: Number(j.count ?? rows.length),
           loaded: true,
           page: Number(j.page ?? page),
-          pageSize: Number(j.pageSize ?? pageSize),
-        },
+          pageSize: Number(j.pageSize ?? pageSize)
+        }
       }));
     } finally {
       setLoadingState("");
@@ -188,7 +186,6 @@ export default function AppExpansionPanel() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
-            // Enter relance le chargement pour les panneaux ouverts
             if (e.key === "Enter") {
               Object.keys(byState).forEach((frState) => {
                 const b = byState[frState];
@@ -213,7 +210,6 @@ export default function AppExpansionPanel() {
             key={frState}
             onChange={(_, expanded) => {
               if (expanded && !bucket?.loaded) {
-                // 1er dépliage -> charge la page 1 (10 lignes)
                 loadStateRows(frState, 1, 10, query);
               }
             }}
@@ -244,7 +240,7 @@ export default function AppExpansionPanel() {
                     rowCount={bucket.count}
                     paginationModel={{
                       pageSize: bucket.pageSize ?? 10,
-                      page: (bucket.page ?? 1) - 1, // 0-based pour MUI
+                      page: (bucket.page ?? 1) - 1 // 0-based pour MUI
                     }}
                     pageSizeOptions={[5, 10, 25, 50]}
                     onPaginationModelChange={({ page, pageSize }) => {
