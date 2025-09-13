@@ -4,12 +4,6 @@ const navigations = [
   { name: "Dashboard", path: "/dashboard/default", icon: "dashboard" },
   { name: "User Profile", path: "/user-profile", icon: "person" },
 
-/*  {
-    name: "Départements",
-    path: "/departement/departement",
-    icon: "apartment",
-    auth: authRoles.admin // ✅ visible uniquement pour ADMIN
-  },*/
   {
   name: "Prestations",
   icon: "folder",

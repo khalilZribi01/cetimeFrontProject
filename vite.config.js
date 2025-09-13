@@ -13,6 +13,10 @@ export default defineConfig({
       workbox: { clientsClaim: true, skipWaiting: true }
     })
   ],
+  server: {
+    port: 5173,                 // (optionnel) explicite le port
+    open: "/session/signin",    // 👉 ouvre cette URL au démarrage
+  },
   build: {
     chunkSizeWarningLimit: 2000
   },
