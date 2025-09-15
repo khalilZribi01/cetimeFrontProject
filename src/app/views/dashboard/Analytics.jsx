@@ -46,11 +46,7 @@ export default function Analytics() {
     <Fragment>
       <ContentBox className="analytics">
         {/* Ligne 1 */}
-        <FlexRow>
-          <HalfBox>
-            <KpiPrestationsCard /> {/* 👈 KPI Prestations */}
-          </HalfBox>
-        </FlexRow>
+      
 
         {/* Ligne 2 */}
         <FlexRow>
@@ -60,7 +56,11 @@ export default function Analytics() {
                 <TopSellingTable />
               </HalfBox>
 
-         
+           <FlexRow>
+          <HalfBox>
+            <KpiPrestationsCard /> {/* 👈 KPI Prestations */}
+          </HalfBox>
+        </FlexRow>
               <HalfBox>
                 <StatCards />
               </HalfBox>

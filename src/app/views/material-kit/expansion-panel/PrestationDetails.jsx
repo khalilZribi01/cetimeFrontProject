@@ -45,6 +45,7 @@ const fmtDate = (d) => {
 
 function resolveReadable(row = {}) {
   const readable = { ...row };
+  // remplace les IDs par les libellés quand on les a
   readable.department_id       = row.department_name ?? row.department_id;
   readable.activity_id         = row.activity_name   ?? row.activity_id;
   readable.country_id          = row.country_name    ?? row.country_id;
@@ -54,48 +55,61 @@ function resolveReadable(row = {}) {
       : row.analytic_account_id;
   readable.responsible_id      = row.responsible_name  ?? row.responsible_id;
   readable.responsible1_id     = row.responsible1_name ?? row.responsible1_id;
-  readable.alias_model         = row.alias_model === "project.task" ? "Tâche projet" : row.alias_model;
-  readable.privacy_visibility  = row.privacy_visibility === "employees" ? "Employés" : row.privacy_visibility;
 
+  // libellés plus parlants sur certains champs système
+  readable.alias_model        = row.alias_model === "project.task" ? "Tâche projet" : row.alias_model;
+  readable.privacy_visibility = row.privacy_visibility === "employees" ? "Employés" : row.privacy_visibility;
+
+  // dates formattées
   ["create_date","write_date","date","date_creation","last_update_team_leader"]
     .forEach(k => { if (row[k]) readable[k] = fmtDate(row[k]); });
 
   return readable;
 }
 
+/** 🔤 Libellés “métier” (propres) pour les champs techniques */
 const TECH_LABELS = {
   id: "ID interne",
   name_primary: "Nom du projet",
-  prestation: "Numéro de prestation",
-  state: "État",
+  prestation: "N° de prestation",
+  state: "Statut",
   reference_bordereau: "Référence bordereau",
+
   department_id: "Département",
   activity_id: "Activité",
   country_id: "Pays",
   analytic_account_id: "Compte analytique",
-  responsible_id: "Responsable",
+
+  responsible_id: "Responsable principal",
   responsible1_id: "Responsable secondaire",
-  user_id: "Utilisateur",
-  iat: "IAT",
+  user_id: "Affecté à",
+
+  iat: "IAT (référence)",
   iat_case: "Dossier IAT",
   iat_number: "N° IAT",
+
   office_order_id: "Ordre de bureau",
-  sequence_tri: "Séquence tri",
-  sequence_pres: "Séquence présentation",
-  t: "T",
+  sequence_tri: "Séquence de tri",
+  sequence_pres: "Séquence d’affichage",
+
+  t: "Marqué T",
   active: "Actif",
   privacy_visibility: "Visibilité",
-  alias_model: "Modèle",
-  date: "Date document",
-  date_creation: "Date création",
+  alias_model: "Type d’objet",
+
+  date: "Date du document",
+  date_creation: "Date de création",
   create_date: "Créé le",
   write_date: "Modifié le",
   current_user: "Utilisateur courant",
 };
 
 const HIDE_KEYS = new Set([
+  // textes longs déjà affichés proprement plus haut
   "entete","desctiption","documents",
+  // colonnes d’aide (déjà remappées)
   "department_name","activity_name","country_name","analytic_name","analytic_code",
+  // bruit technique qu’on ne veut pas montrer
   "message_last_post","color","resource_calendar_id","subtask_project_id",
   "label_tasks","flag_create","super_user","is__sale_manager","intervenats",
 ]);
@@ -213,10 +227,10 @@ export default function PrestationDetails() {
               <Field label="Responsable" value={responsable} icon={<BadgeIcon fontSize="inherit" />} />
             </Grid>
             <Grid item xs={12} sm={6} md={4}>
-              <Field label="Date" value={fmtDate(r.date)} />
+              <Field label="Date du document" value={fmtDate(r.date)} />
             </Grid>
             <Grid item xs={12} sm={6} md={4}>
-              <Field label="Date création" value={fmtDate(r.create_date || r.date_creation)} />
+              <Field label="Date de création" value={fmtDate(r.create_date || r.date_creation)} />
             </Grid>
 
             <Grid item xs={12}>

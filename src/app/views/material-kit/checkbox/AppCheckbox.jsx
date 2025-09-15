@@ -1,35 +1,48 @@
+// src/views/calendrier/CalendrierAdmin.jsx
 import { useEffect, useState, useMemo, useRef } from "react";
 import FullCalendar from "@fullcalendar/react";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import {
-  Box, Typography, Dialog, DialogTitle, DialogContent, DialogActions, Button,
-  FormControl, InputLabel, Select, MenuItem,
+  Box,
+  Typography,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from "@mui/material";
 import axios from "axios";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
 // Endpoints
-const USERS_ALLOWED_URL = `${API_BASE}/api/auth/allowed`;          // <-- nouveaux agents filtrés
+const USERS_ALLOWED_URL = `${API_BASE}/api/auth/allowed`;          // liste d’agents autorisés (nouvelle route)
+const USERS_FALLBACK_URL = `${API_BASE}/routes/users/by-group?group=employee&limit=200`; // fallback
 const DISPO_ALL_URL     = `${API_BASE}/disponibilite/all`;
 const RDV_ADMIN_URL     = `${API_BASE}/rendezvous/admin`;
 const AFFECT_URL        = `${API_BASE}/rendezvous/affecter/admin`;
 const REASSIGN_URL      = (id) => `${API_BASE}/rendezvous/${id}/reassign`;
+const CONFIRM_URL       = (id) => `${API_BASE}/rendezvous/confirmer/${id}`;
+const CANCEL_URL        = (id) => `${API_BASE}/rendezvous/annuler/${id}`;
 
 const COLORS = {
-  dispo: "#2196f3",
-  valide: "#4caf50",
+  dispo:   "#2196f3",
+  valide:  "#4caf50",
   attente: "#ff9800",
-  annule: "#f44336",
+  annule:  "#f44336",
 };
 
 // --- helpers ---
 const tagP = (name) => {
   const s = String(name || "").trim();
   return s && s !== "À affecter" ? `${s} - P` : s;
-   };
+};
 
 const isSameDay = (d1, d2) => {
   const a = new Date(d1), b = new Date(d2);
@@ -37,6 +50,7 @@ const isSameDay = (d1, d2) => {
          a.getMonth() === b.getMonth() &&
          a.getDate() === b.getDate();
 };
+
 const useHasSameDay = (events) => (kind, agentId, dayRef, ignoreId = null) =>
   events.some((e) => {
     if (e?.extendedProps?.kind !== kind) return false;
@@ -50,7 +64,7 @@ export default function CalendrierAdmin() {
   const [agents, setAgents] = useState([]);
   const [assignOpen, setAssignOpen] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState("");
-  const [selectedSlot, setSelectedSlot] = useState(null); // { startStr, endStr }
+  const [selectedSlot, setSelectedSlot] = useState(null);   // { startStr, endStr }
   const [selectedEvent, setSelectedEvent] = useState(null); // EventApi (RDV)
   const [mode, setMode] = useState("assign"); // "assign" | "reassign"
 
@@ -79,15 +93,32 @@ export default function CalendrierAdmin() {
 
   const fetchAgents = async () => {
     try {
-      const res = await axios.get(USERS_ALLOWED_URL, authHeader);
-      const items = (res.data || [])
-        .map((a) => ({
+      // 1) nouvelle route “allowed”
+      let res = await axios.get(USERS_ALLOWED_URL, authHeader);
+      let items = Array.isArray(res.data) ? res.data : [];
+
+      if (items.length === 0) {
+        // 2) fallback par groupe
+        res = await axios.get(USERS_FALLBACK_URL, authHeader);
+        items = (res.data || []).map((u) => ({
+          id: u.id ?? u.value,
+          name:
+            u?.partner?.name ||
+            u?.partner_name ||
+            u?.label ||
+            u?.login ||
+            `Employé #${u.id ?? u.value}`,
+          email: u?.partner?.email || u?.email || null,
+        }));
+      } else {
+        items = items.map((a) => ({
           id: a.id,
           name: a.name,
           email: a.email || null,
-        }))
-        .sort((x, y) => x.name.localeCompare(y.name));
+        }));
+      }
 
+      items.sort((x, y) => String(x.name).localeCompare(String(y.name)));
       setAgents(items);
       agentIndexRef.current = buildIndex(items);
       return items;
@@ -107,7 +138,7 @@ export default function CalendrierAdmin() {
       const dispoRes = await axios.get(DISPO_ALL_URL, authHeader);
       const disponibilites = (dispoRes.data || []).map((item) => {
         const label = idx[String(item.agentId)]?.name || item.agentName || `Agent ${item.agentId}`;
-       const title = tagP(label);
+        const title = tagP(label);
         return {
           id: `dispo-${item.id ?? `${item.agentId}-${item.start}`}`,
           title,
@@ -119,7 +150,7 @@ export default function CalendrierAdmin() {
         };
       });
 
-      // RDVs (vert/orange/rouge)
+      // RDVs (orange/vert/rouge)
       const rdvRes = await axios.get(RDV_ADMIN_URL, authHeader);
       const rdvs = (rdvRes.data || []).map((rdv) => {
         const start = rdv.start || rdv.dateRdv;
@@ -150,10 +181,11 @@ export default function CalendrierAdmin() {
           borderColor: color,
           extendedProps: {
             kind: "rdv",
-            statut: rdv.statut,
+            statut: rdv.statut,        // 'en_attente' | 'valide' | 'annule'
             agentId: rdv.agentId ?? null,
             agentName: tagP(agentLabel),
             clientName,
+            duree: rdv.duree,
           },
         };
       });
@@ -164,7 +196,7 @@ export default function CalendrierAdmin() {
     }
   };
 
-  // Sélection d’un créneau vide → affecter (crée une DISPO)
+  // Sélection d’un créneau vide → affecter (création d’une DISPO)
   const handleDateSelect = (selectInfo) => {
     setMode("assign");
     setSelectedSlot({ startStr: selectInfo.startStr, endStr: selectInfo.endStr });
@@ -173,7 +205,7 @@ export default function CalendrierAdmin() {
     setAssignOpen(true);
   };
 
-  // Clic sur un RDV → réaffecter (change l’AGENT du RDV)
+  // Clic sur un RDV → réaffecter + afficher boutons Confirmer / Annuler
   const handleEventClick = (clickInfo) => {
     const kind = clickInfo?.event?.extendedProps?.kind;
     if (kind !== "rdv") return;
@@ -184,25 +216,27 @@ export default function CalendrierAdmin() {
     setAssignOpen(true);
   };
 
-  // Agents désactivés dans la liste (selon la contrainte "1 / jour")
+  // Agents disabled dans le Select (selon la contrainte "1 / jour")
   const disabledAgents = useMemo(() => {
     const set = new Set();
     if (mode === "assign" && selectedSlot?.startStr) {
+      // empêcher de créer une DISPO si l’agent a déjà une DISPO ce jour
       agents.forEach((a) => {
         if (hasDispoSameDay(a.id, selectedSlot.startStr)) set.add(String(a.id));
       });
     } else if (mode === "reassign" && selectedEvent?.start) {
+      // empêcher de réassigner vers un agent qui a déjà un RDV ce jour
       agents.forEach((a) => {
         if (hasRdvSameDay(a.id, selectedEvent.start, selectedEvent.id))
           set.add(String(a.id));
       });
       const currentId = selectedEvent?.extendedProps?.agentId;
-      if (currentId) set.add(String(currentId)); // agent actuel désactivé
+      if (currentId) set.add(String(currentId)); // l’agent actuel apparaît mais disabled
     }
     return set;
-  }, [agents, events, mode, selectedSlot, selectedEvent]);
+  }, [agents, events, mode, selectedSlot, selectedEvent, hasDispoSameDay, hasRdvSameDay]);
 
-  // Confirmer (création dispo OU réaffectation RDV)
+  // Affecter / Réaffecter (création dispo OU changement d’agent RDV)
   const confirmAssign = async () => {
     if (!selectedAgentId) return;
 
@@ -241,6 +275,40 @@ export default function CalendrierAdmin() {
       await fetchData();
     } catch (err) {
       console.error("Erreur affectation/réaffectation:", err);
+      alert(err?.response?.data?.message || "Erreur lors de l’opération");
+    }
+  };
+
+  // === ADMIN: Confirmer / Annuler un RDV ===
+  const confirmRdvByAdmin = async () => {
+    if (!selectedEvent) return;
+    try {
+      // Optionnel: confirmer avec l’agent sélectionné si fourni
+      const body = selectedAgentId ? { agentId: selectedAgentId } : {};
+      await axios.post(CONFIRM_URL(selectedEvent.id), body, authHeader);
+
+      setAssignOpen(false);
+      setSelectedSlot(null);
+      setSelectedEvent(null);
+      await fetchData();
+    } catch (err) {
+      console.error("Erreur confirmation admin:", err?.response?.data || err);
+      alert(err?.response?.data?.message || "Erreur lors de la confirmation");
+    }
+  };
+
+  const cancelRdvByAdmin = async () => {
+    if (!selectedEvent) return;
+    try {
+      await axios.put(CANCEL_URL(selectedEvent.id), {}, authHeader);
+
+      setAssignOpen(false);
+      setSelectedSlot(null);
+      setSelectedEvent(null);
+      await fetchData();
+    } catch (err) {
+      console.error("Erreur annulation admin:", err?.response?.data || err);
+      alert(err?.response?.data?.message || "Erreur lors de l'annulation");
     }
   };
 
@@ -276,11 +344,14 @@ export default function CalendrierAdmin() {
         height="auto"
       />
 
-      {/* Dialog assign / reassign */}
+      {/* Dialog assign / reassign / confirm / cancel */}
       <Dialog open={assignOpen} onClose={() => setAssignOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>
-          {mode === "reassign" ? "Réaffecter un agent à ce RDV" : "Affecter un agent au créneau sélectionné"}
+          {mode === "reassign"
+            ? "Gérer ce RDV (réaffecter / confirmer / annuler)"
+            : "Affecter un agent au créneau sélectionné"}
         </DialogTitle>
+
         <DialogContent>
           {mode === "reassign" && selectedEvent && (
             <Box mb={2}>
@@ -290,11 +361,16 @@ export default function CalendrierAdmin() {
                   : selectedEvent.title}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                {new Date(selectedEvent.start).toLocaleString()} → {new Date(selectedEvent.end).toLocaleString()}
+                {new Date(selectedEvent.start).toLocaleString()} →{" "}
+                {new Date(selectedEvent.end).toLocaleString()}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Statut: {selectedEvent.extendedProps?.statut}
               </Typography>
             </Box>
           )}
 
+          {/* Sélecteur d'agent (sert à réaffecter ET peut servir à confirmer avec un agent précis) */}
           <FormControl fullWidth sx={{ mt: 1 }}>
             <InputLabel id="agent-select-label">Agent</InputLabel>
             <Select
@@ -335,15 +411,54 @@ export default function CalendrierAdmin() {
                   </MenuItem>
                 );
               })}
-              {agents.length === 0 && <MenuItem disabled>Aucun agent autorisé</MenuItem>}
+              {agents.length === 0 && (
+                <MenuItem disabled>Aucun agent autorisé</MenuItem>
+              )}
             </Select>
           </FormControl>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAssignOpen(false)}>Annuler</Button>
-          <Button variant="contained" onClick={confirmAssign} disabled={!selectedAgentId}>
-            {mode === "reassign" ? "Réaffecter" : "Affecter"}
-          </Button>
+
+        <DialogActions sx={{ flexWrap: "wrap", gap: 1, px: 3, pb: 2 }}>
+          <Button onClick={() => setAssignOpen(false)}>Fermer</Button>
+
+          {/* Affecter / Réaffecter */}
+          {mode === "assign" ? (
+            <Button variant="contained" onClick={confirmAssign} disabled={!selectedAgentId}>
+              Affecter (créer dispo)
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="outlined"
+                onClick={confirmAssign}
+                disabled={!selectedAgentId}
+              >
+                Réaffecter l’agent
+              </Button>
+
+              {/* CONFIRMER RDV (ADMIN) — visible si le RDV est en attente */}
+              {selectedEvent?.extendedProps?.statut === "en_attente" && (
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={confirmRdvByAdmin}
+                >
+                  Confirmer le RDV
+                </Button>
+              )}
+
+              {/* ANNULER RDV (ADMIN) — visible si pas déjà annulé */}
+              {selectedEvent && selectedEvent?.extendedProps?.statut !== "annule" && (
+                <Button
+                  variant="contained"
+                  color="error"
+                  onClick={cancelRdvByAdmin}
+                >
+                  Annuler le RDV
+                </Button>
+              )}
+            </>
+          )}
         </DialogActions>
       </Dialog>
     </>

@@ -10,12 +10,15 @@ import {
   LinearProgress,
   Stack,
   TextField,
-  Typography
+  Typography,
+  Button
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import { DataGrid } from "@mui/x-data-grid";
+import { PieChart, Pie, Cell, Tooltip as ReTooltip, ResponsiveContainer } from "recharts";
 
 const API_BASE = "http://localhost:4000";
 
@@ -27,16 +30,17 @@ const TECH_TO_FR = {
   open: "Affectée",
   rejected: "Rejeté"
 };
-/* libellés FR -> états techniques (pour les requêtes) */
+/* libellés FR -> états techniques */
 const FR_TO_TECH = Object.fromEntries(Object.entries(TECH_TO_FR).map(([tech, fr]) => [fr, tech]));
 
-/* ordre d’affichage + couleur */
-const STATE_META = {
-  Clôturé: { color: "default" },
-  Réalisée: { color: "success" },
-  Demande: { color: "warning" },
-  Affectée: { color: "info" },
-  Rejeté: { color: "error" }
+/* ordre + couleurs */
+const STATE_ORDER = ["Clôturé", "Réalisée", "Demande", "Affectée", "Rejeté"];
+const STATE_COLORS = {
+  Clôturé: "#9e9e9e",
+  Réalisée: "#2e7d32",
+  Demande: "#ed6c02",
+  Affectée: "#0288d1",
+  Rejeté: "#d32f2f"
 };
 
 export default function AppExpansionPanel() {
@@ -46,39 +50,27 @@ export default function AppExpansionPanel() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingState, setLoadingState] = useState("");
+  const [selectedState, setSelectedState] = useState(null); // tranche cliquée du donut
 
-  /* --------- colonnes du tableau (adaptées au payload fourni) --------- */
+  // ✅ controlled accordions
+  const [expanded, setExpanded] = useState({}); // { "Affectée": true, ... }
+
+  useEffect(() => {
+    if (selectedState) {
+      setExpanded({ [selectedState]: true }); // n’ouvrir que celle sélectionnée
+    } else {
+      setExpanded({}); // aucune ouverte par défaut
+    }
+  }, [selectedState]);
+
+  /* --------- colonnes du tableau --------- */
   const columns = [
-    {
-      field: "numero",
-      headerName: "N° Prestation",
-      width: 220
-    },
-    {
-      field: "department_name",
-      headerName: "Département",
-      width: 200
-    },
-    {
-      field: "activity_name",
-      headerName: "Activité",
-      width: 260
-    },
-    {
-      field: "reference_bordereau",
-      headerName: "Référence bordereau",
-      flex: 1,
-      minWidth: 260
-    },
-    {
-      field: "date",
-      headerName: "Date",
-      width: 120,
-      valueGetter: (p) => {
-        const d = p?.row?.date || p?.row?.create_date;
-        return d ? String(d).slice(0, 10) : "";
-      }
-    },
+    { field: "numero", headerName: "N° Prestation", width: 220 },
+    { field: "department_name", headerName: "Département", width: 200 },
+    { field: "activity_name", headerName: "Activité", width: 260 },
+    { field: "reference_bordereau", headerName: "Référence bordereau", flex: 1, minWidth: 260 },
+      { field: "date_str", headerName: "Date", width: 120 },
+
     {
       field: "action",
       headerName: "",
@@ -90,6 +82,7 @@ export default function AppExpansionPanel() {
           <IconButton
             size="small"
             onClick={() => window.open(`/prestations/${p.row.id}`, "_blank")}
+            title="Ouvrir"
           >
             <OpenInNewIcon fontSize="inherit" />
           </IconButton>
@@ -98,8 +91,6 @@ export default function AppExpansionPanel() {
   ];
 
   /* --------- API --------- */
-
-  // Compteurs par état
   async function loadCounts() {
     setLoading(true);
     try {
@@ -117,7 +108,6 @@ export default function AppExpansionPanel() {
     }
   }
 
-  // Lignes pour un état (pagination serveur)
   async function loadStateRows(frState, page = 1, pageSize = 10, q = "") {
     const tech = FR_TO_TECH[frState];
     if (!tech) return;
@@ -134,22 +124,30 @@ export default function AppExpansionPanel() {
       const r = await fetch(url.toString());
       if (!r.ok) throw new Error("HTTP " + r.status);
       const j = await r.json(); // { rows, count, page, pageSize }
+      // ...dans loadStateRows(...)
+      const rows = (Array.isArray(j.rows) ? j.rows : []).map((r = {}) => {
+        const rawDate = r.date ?? r.date_creation ?? r.create_date ?? r.date_start ?? null;
 
-      const rows = (Array.isArray(j.rows) ? j.rows : []).map((r = {}) => ({
-        id: r.id,
-        prestation: r.prestation ?? null,
-        name_primary: r.name_primary ?? "",
-        department_name: r.department_name ?? "",
-        activity_name: r.activity_name ?? "",
-        reference_bordereau: r.reference_bordereau ?? "",
-        date: r.date ?? r.create_date ?? null,
-        // ✅ champ calculé/retourné par l'API (fallback fiable)
-        numero: r.numero ?? r.prestation ?? r.name_primary ?? "",
-        // état FR (utile si besoin)
-        state: frState,
-        // conserver tout l’objet d’origine
-        ...r
-      }));
+        const date_str = rawDate
+          ? new Date(rawDate).toLocaleDateString("fr-FR") // "27/04/2025"
+          : "";
+
+        return {
+          id: r.id,
+          prestation: r.prestation ?? null,
+          name_primary: r.name_primary ?? "",
+          department_name: r.department_name ?? "",
+          activity_name: r.activity_name ?? "",
+          reference_bordereau: r.reference_bordereau ?? "",
+          // ✅ nouveau champ pour l'affichage
+          date_str,
+          // (on garde aussi la brute si besoin ailleurs)
+          date_raw: rawDate ?? null,
+          numero: r.numero ?? r.prestation ?? r.name_primary ?? "",
+          state: frState,
+          ...r
+        };
+      });
 
       setByState((prev) => ({
         ...prev,
@@ -170,10 +168,26 @@ export default function AppExpansionPanel() {
     loadCounts();
   }, []);
 
+  // sur sélection du donut, charger si besoin
+  useEffect(() => {
+    if (selectedState && !byState[selectedState]?.loaded) {
+      loadStateRows(selectedState, 1, 10, query);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedState]);
+
   const onRefresh = async () => {
     setByState({});
+    setSelectedState(null);
     await loadCounts();
   };
+
+  // Données du donut
+  const pieData = STATE_ORDER.map((name) => ({
+    name,
+    value: counts[name] ?? 0,
+    color: STATE_COLORS[name]
+  })).filter((d) => d.value > 0);
 
   return (
     <Box p={3}>
@@ -201,22 +215,93 @@ export default function AppExpansionPanel() {
 
       {loading && <LinearProgress sx={{ mb: 2 }} />}
 
-      {Object.entries(STATE_META).map(([frState, meta]) => {
+      {/* ===== Donut + légende ===== */}
+      <CardLike>
+        <Stack direction="row" alignItems="center" spacing={2} sx={{ p: 2 }}>
+          <Box sx={{ width: "100%", height: 220 }}>
+            <ResponsiveContainer>
+              <PieChart>
+                <Pie
+                  dataKey="value"
+                  data={pieData}
+                  innerRadius={70}
+                  outerRadius={95}
+                  paddingAngle={1}
+                  onClick={(_, idx) => {
+                    const fr = pieData[idx]?.name;
+                    if (fr) setSelectedState(fr);
+                  }}
+                >
+                  {pieData.map((entry) => (
+                    <Cell key={entry.name} fill={entry.color} cursor="pointer" />
+                  ))}
+                </Pie>
+                <ReTooltip
+                  formatter={(val, nm) => [`${val}`, nm]}
+                  labelFormatter={(lbl) => `Statut: ${String(lbl)}`}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </Box>
+
+          {/* Légende + actions */}
+          <Stack spacing={1} sx={{ minWidth: 220 }}>
+            <Typography variant="subtitle2">Statuts</Typography>
+            {STATE_ORDER.map((s) => (
+              <Stack
+                key={s}
+                direction="row"
+                alignItems="center"
+                justifyContent="space-between"
+                spacing={1}
+              >
+                <Chip
+                  size="small"
+                  label={s}
+                  sx={{ bgcolor: STATE_COLORS[s], color: "#fff", fontWeight: 600 }}
+                  onClick={() => setSelectedState(s)}
+                />
+                <Typography variant="body2" color="text.secondary">
+                  {counts[s] ?? 0}
+                </Typography>
+              </Stack>
+            ))}
+            <Button
+              startIcon={<RestartAltIcon />}
+              size="small"
+              onClick={() => setSelectedState(null)}
+              sx={{ mt: 1, alignSelf: "flex-start" }}
+            >
+              Tout afficher
+            </Button>
+          </Stack>
+        </Stack>
+      </CardLike>
+
+      {/* ===== Listes par statut ===== */}
+      {(selectedState ? [selectedState] : STATE_ORDER).map((frState) => {
         const bucket = byState[frState];
         const count = counts[frState] ?? 0;
+        const isExpanded = selectedState ? frState === selectedState : !!expanded[frState];
 
         return (
           <Accordion
             key={frState}
-            onChange={(_, expanded) => {
-              if (expanded && !bucket?.loaded) {
+            expanded={isExpanded}
+            onChange={(_, isOpen) => {
+              setExpanded((prev) => ({ ...prev, [frState]: isOpen }));
+              if (isOpen && !bucket?.loaded) {
                 loadStateRows(frState, 1, 10, query);
               }
             }}
           >
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Stack direction="row" alignItems="center" spacing={1}>
-                <Chip size="small" label={frState} color={meta.color} />
+                <Chip
+                  size="small"
+                  label={frState}
+                  sx={{ bgcolor: STATE_COLORS[frState], color: "#fff" }}
+                />
                 <Typography variant="body2" color="text.secondary">
                   {count}
                 </Typography>
@@ -240,7 +325,7 @@ export default function AppExpansionPanel() {
                     rowCount={bucket.count}
                     paginationModel={{
                       pageSize: bucket.pageSize ?? 10,
-                      page: (bucket.page ?? 1) - 1 // 0-based pour MUI
+                      page: (bucket.page ?? 1) - 1 // 0-based
                     }}
                     pageSizeOptions={[5, 10, 25, 50]}
                     onPaginationModelChange={({ page, pageSize }) => {
@@ -254,6 +339,23 @@ export default function AppExpansionPanel() {
           </Accordion>
         );
       })}
+    </Box>
+  );
+}
+
+/** Petit wrapper visuel (optionnel) */
+function CardLike({ children }) {
+  return (
+    <Box
+      sx={{
+        border: (t) => `1px solid ${t.palette.divider}`,
+        borderRadius: 2,
+        overflow: "hidden",
+        mb: 2,
+        bgcolor: "background.paper"
+      }}
+    >
+      {children}
     </Box>
   );
 }

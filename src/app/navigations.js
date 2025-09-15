@@ -4,6 +4,12 @@ const navigations = [
   { name: "Dashboard", path: "/dashboard/default", icon: "dashboard" },
   { name: "User Profile", path: "/user-profile", icon: "person" },
 
+/*  {
+    name: "Départements",
+    path: "/departement/departement",
+    icon: "apartment",
+    auth: authRoles.admin // ✅ visible uniquement pour ADMIN
+  },*/
   {
   name: "Prestations",
   icon: "folder",
@@ -25,7 +31,7 @@ const navigations = [
     { name: "calendrier", path: "/calendrier", icon: "event", auth: authRoles.employee  },
   { name: "calendrier", path: "/material/dialog",  icon: "event",
     auth: authRoles.client },
-         { name: "Nos Kpi", path: "/material/icons", icon: "description", },
+         { name: "Nos Kpi", path: "/material/icons", icon: "description",auth: authRoles.admin},
      
   /* { label: "PAGES", type: "label" },
   {

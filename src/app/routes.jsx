@@ -14,7 +14,7 @@ import CalendrierAgent from "./views/material-kit/checkbox/CalendrierAgent";
 const Analytics = Loadable(lazy(() => import("app/views/dashboard/Analytics")));
 const UserProfile = Loadable(lazy(() => import("app/views/UserProfile/UserProfile")));
 const AppButton = Loadable(lazy(() => import("app/views/material-kit/buttons/AppButton")));
-const AppEchart = Loadable(lazy(() => import("app/views/charts/echarts/AppEchart")));
+
 const AppAutoComplete = Loadable(lazy(() => import("app/views/material-kit/auto-complete/AppAutoComplete")));
 const EditDocumentPage = Loadable(lazy(() => import("app/views/material-kit/auto-complete/EditDocumentPage")));
 
@@ -39,6 +39,7 @@ const routes = [
       ...materialRoutes,
 
       { path: "/dashboard/default", element: <Analytics />, auth: authRoles.guest },
+      { path: "/user-profile", element: <UserProfile />, auth: authRoles.user },
       { path: "/user-profile/:id", element: <UserProfile />, auth: authRoles.user },
 
       // ✅ Accès protégé uniquement pour ADMIN
@@ -53,9 +54,7 @@ const routes = [
       { path: "/prestations/:id", element: <PrestationDetails />, auth: authRoles.user },
 
       // ✅ Accès protégé uniquement pour ADMIN
-      { path: "/departement/departement/:id", element: <AppButton />, auth: authRoles.admin },
-
-      { path: "/charts/echarts", element: <AppEchart />, auth: authRoles.editor }
+      { path: "/departement/departement/:id", element: <AppButton />, auth: authRoles.admin }
     ]
   },
 
